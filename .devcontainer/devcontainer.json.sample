@@ -1,0 +1,102 @@
+{
+  "name": "DevOps Toolchain Container",
+  "build": {
+    "dockerfile": "../.devcontainer/Dockerfile",
+    "args": {
+      "USERNAME": "devops",
+      "USER_UID": "1000",
+      "USER_GID": "1000"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        // Настройки терминала
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.fontFamily": "Cascadia Code PL",
+        "terminal.integrated.fontSize": 12,
+        
+        // Настройки редактора
+        "editor.fontFamily": "'Cascadia Code PL', 'Droid Sans Mono', 'monospace', monospace",
+        "editor.fontSize": 14,
+        "editor.fontLigatures": true,
+        "files.eol": "\n",  // Явное указание LF
+        "files.autoGuessEncoding": true,
+        
+        // Языковые настройки
+        "ansible.python.interpreterPath": "/usr/bin/python3",
+        "java.jdt.ls.java.home": "/usr/lib/jvm/java-17-openjdk-amd64",
+        "groovy.home": "/usr/share/groovy",
+        
+        // Docker/Kubernetes
+        "docker.buildx.enabled": true,
+        "docker.buildx.defaultPlatform": "linux/amd64",
+        "kubectl-path": "/usr/local/bin/kubectl",
+        
+        // YAML настройки (без явного форматтера)
+        "yaml.schemas": {
+          "kubernetes": "/*.yaml"
+        },
+        "yaml.format.enable": true
+      },
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "redhat.yaml",
+        "redhat.ansible",
+        "vscjava.vscode-java-pack",
+        "ms-python.python",
+        "GitHub.copilot",
+        "ckolkman.vscode-postgres",
+        "mtxr.sqltools",
+        "streetsidesoftware.code-spell-checker",
+        "streetsidesoftware.code-spell-checker-russian",
+        "ms-azuretools.vscode-docker",
+        "Maarti.jenkins-doc",
+        "adamhartford.vscode-base64",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "redhat.vscode-yaml",
+        "eamodio.gitlens",
+        "william-voyek.vscode-nginx",
+        "tal7aouy.rainbow-bracket",
+        "codezombiech.gitignore",
+        "MellowMarshmallow.groovy",
+        "donjayamanne.git-extension-pack",
+        "mhutchie.git-graph",
+        "ms-vscode-remote.remote-containers",
+        "timonwong.shellcheck",
+        "donjayamanne.githistory",
+        "Tim-Koehler.helm-intellisense",
+        "ms-vscode-remote.remote-ssh"
+      ]
+    }
+  },
+  "remoteUser": "devops",
+  "mounts": [
+    {
+      "type": "bind",
+      "source": "/var/run/docker.sock",
+      "target": "/var/run/docker.sock"
+    }
+  ],
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt",
+    "seccomp=unconfined",
+    "--volume", 
+    "${env:HOME}${env:USERPROFILE}/.ssh:/var/lib/ssh-hosts-files",
+    "--hostname",
+    "devops-toolchain"
+  ],
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/home/${localEnv:USERNAME}/.local/bin",
+    "LANG": "en_US.UTF-8",
+    "LC_ALL": "en_US.UTF-8",
+    "TERM": "xterm-256color"
+  },
+  "postCreateCommand": [
+    "sh",
+    "-c",
+    "mkdir -p /home/devops/.ssh && cp /var/lib/ssh-hosts-files/* /home/devops/.ssh/ && chmod 700 /home/devops/.ssh && chmod 600 /home/devops/.ssh/* && eval $(ssh-agent -s) && echo \"Started new SSH agent in container\";"
+  ]
+}
