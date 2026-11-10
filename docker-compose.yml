@@ -2,8 +2,6 @@ services:
   backend:
     # Для использования в пайплайне развертывания
     # image: ${CI_REGISTRY_IMAGE}/sandbox-backend:${BACKEND_VERSION}
-    # Без .env используется локальный образ, с .env - образ из registry
-    # image: ${BACKEND_IMAGE:-sandbox-backend:latest}
     image: "${REGISTRY}/seredada-backend-docker/sandbox-backend:latest"
     container_name: sandbox-backend
     env_file:
@@ -26,8 +24,6 @@ services:
   frontend:
     # Для использования в пайплайне развертывания
     # image: ${CI_REGISTRY_IMAGE}/sandbox-frontend:${FRONTEND_VERSION}
-    # Без .env используется локальный образ, с .env - образ из registry
-    # image: ${FRONTEND_IMAGE:-sandbox-frontend:latest}
     image: "${REGISTRY}/seredada-frontend-docker/sandbox-frontend:latest"
     container_name: sandbox-frontend
     env_file:
