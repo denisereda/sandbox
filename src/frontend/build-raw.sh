@@ -5,7 +5,7 @@ set -xe
 REGISTRY=""
 VERSION=$(date -u +%Y%m%d-%H%M%S)
 
-source ../.env
+source ../../.env
 
 docker buildx build \
   --file $PWD/Dockerfile \
@@ -14,20 +14,20 @@ docker buildx build \
   --pull \
   --no-cache \
   --load \
-  --build-arg VERSION="${VERSION}" \
+  --target builder \
   .
 
 docker create --name sandbox-frontend sandbox-frontend:latest
 
 mkdir -p output
-docker cp sandbox-frontend:/app/build ./output
+docker cp sandbox-frontend:/app/build "./output/frontend-${VERSION}"
 
 docker rm sandbox-frontend
 
 # Добавим в дистрибутив конфигурацию сервиса и скрипт установки
-cp ./sandbox-frontend.service "./output/build/frontend-${VERSION}"
+cp ./sandbox-frontend.service "./output/frontend-${VERSION}"
 
-tar -czvf "./output/sandbox-frontend-${VERSION}.tar.gz" -C ./output/build .
+tar -czvf "./output/sandbox-frontend-${VERSION}.tar.gz" -C "./output/frontend-${VERSION}" .
 
 # Отправка по SSH
 # scp "/output/sandbox-frontend-${VERSION}" ubuntu@153.51.117.227:/home/ubuntu/build/frontend
