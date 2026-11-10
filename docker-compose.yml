@@ -1,0 +1,50 @@
+services:
+  backend:
+    # Для использования в пайплайне развертывания
+    # image: ${CI_REGISTRY_IMAGE}/sandbox-backend:${BACKEND_VERSION}
+    # Без .env используется локальный образ, с .env - образ из registry
+    # image: ${BACKEND_IMAGE:-sandbox-backend:latest}
+    image: "${REGISTRY}/seredada-backend-docker/sandbox-backend:latest"
+    container_name: sandbox-backend
+    env_file:
+      - .env
+    networks:
+      - sandbox
+    expose:
+      - "8081"
+    # Для сборки в ходе отладки
+    # build:
+    #   context: ./src/backend
+    #   dockerfile: Dockerfile
+    healthcheck:
+      test: curl --fail -s http://localhost:8081/products
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 6
+ 
+  frontend:
+    # Для использования в пайплайне развертывания
+    # image: ${CI_REGISTRY_IMAGE}/sandbox-frontend:${FRONTEND_VERSION}
+    # Без .env используется локальный образ, с .env - образ из registry
+    # image: ${FRONTEND_IMAGE:-sandbox-frontend:latest}
+    image: "${REGISTRY}/seredada-frontend-docker/sandbox-frontend:latest"
+    container_name: sandbox-frontend
+    env_file:
+      - .env
+    networks:
+      - sandbox 
+    ports:
+      - "8889:8888"
+    # Для автоматизации масштабирования backend
+    # volumes:
+    #   - "/var/run/docker.sock:/tmp/docker.sock:ro"
+    depends_on:
+      - backend
+    # Для сборки в ходе отладки
+    # build:
+    #   context: ./src/frontend
+    #   dockerfile: Dockerfile
+
+networks:
+  sandbox:

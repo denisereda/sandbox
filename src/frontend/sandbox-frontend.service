@@ -1,5 +1,6 @@
 [Unit]
 Description=sandbox-frontend
+After=network.target
 
 [Service]
 User=sandbox-frontend

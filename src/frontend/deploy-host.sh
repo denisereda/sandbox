@@ -1,4 +1,5 @@
 #! /bin/bash
+# Скрипт необходимо передать на удаленную машину и выполнить после подключения через SSH
 # Чтобы скрипт завершался, если есть ошибки
 set -xe
 
@@ -62,8 +63,8 @@ if [ -f "${RELEASE_SYSTEMD_FILE_PATH}" ]; then
 fi
 
 # Поставим необходимое ПО
-# sudo apt install nodejs npm
-# sudo npm install -g http-server
+sudo apt install nodejs npm
+sudo npm install -g http-server
 
 # Запускаем сервис
 # 1. Перезагрузите конфигурацию systemd, чтобы он увидел новый файл
