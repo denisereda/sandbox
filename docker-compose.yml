@@ -1,8 +1,7 @@
 services:
   backend:
-    # Для использования в пайплайне развертывания
-    # image: ${CI_REGISTRY_IMAGE}/sandbox-backend:${BACKEND_VERSION}
-    image: "${REGISTRY}/seredada-backend-docker/sandbox-backend:latest"
+    # Образ из registry, указанного в .env (REPOSITORY_BACKEND + IMAGE_TAG)
+    image: "${REPOSITORY_BACKEND:-${REGISTRY_BACKEND}/sandbox-backend}:${IMAGE_TAG:-latest}"
     container_name: sandbox-backend
     env_file:
       - .env
@@ -22,9 +21,8 @@ services:
       retries: 6
  
   frontend:
-    # Для использования в пайплайне развертывания
-    # image: ${CI_REGISTRY_IMAGE}/sandbox-frontend:${FRONTEND_VERSION}
-    image: "${REGISTRY}/seredada-frontend-docker/sandbox-frontend:latest"
+    # Образ из registry, указанного в .env (REPOSITORY_FRONTEND + IMAGE_TAG)
+    image: "${REPOSITORY_FRONTEND:-${REGISTRY_FRONTEND}/sandbox-frontend}:${IMAGE_TAG:-latest}"
     container_name: sandbox-frontend
     env_file:
       - .env
