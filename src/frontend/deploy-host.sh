@@ -3,12 +3,14 @@
 # Чтобы скрипт завершался, если есть ошибки
 set -xe
 
+source ../../.env
+
 FRONTEND_SITE_FOLDER_NAME="site"
 SERVICE_NAME="sandbox-frontend"
 SYSTEMD_SERVICE_NAME="${SERVICE_NAME}.service"
 VERSION="20261105-141159" # <-- ОПРЕДЕЛИТЕ НУЖНУЮ ВЕРСИЮ ТУТ
 NEXUS_REPO_FRONTEND_NAME="seredada-frontend"
-NEXUS_REPO_URL=http://93.77.166.24:8081
+NEXUS_REPO_URL="http://${REGISTRY}"
 
 DOWNLOAD_PATH="/tmp/sandbox/frontend"
 SERVICE_PATH="/opt/sandbox/frontend"

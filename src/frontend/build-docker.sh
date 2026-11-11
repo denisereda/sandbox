@@ -8,8 +8,8 @@ source ../../.env
 
 docker buildx build \
   --file $PWD/Dockerfile \
-  --tag "${REGISTRY}/seredada-frontend-docker/sandbox-frontend:latest" \
-  --tag "${REGISTRY}/seredada-frontend-docker/sandbox-frontend:${VERSION}" \
+  --tag "${REGISTRY_FRONTEND}/sandbox-frontend:latest" \
+  --tag "${REGISTRY_FRONTEND}/sandbox-frontend:${VERSION}" \
   --pull \
   --no-cache \
   --push \

@@ -3,12 +3,14 @@
 # Чтобы скрипт завершался, если есть ошибки
 set -xe
 
+source ../../.env
+
 BACKEND_GO_FILE_NAME="app"
 SERVICE_NAME="sandbox-backend"
 SYSTEMD_SERVICE_NAME="${SERVICE_NAME}.service"
 VERSION="20261105-084648" # <-- ОПРЕДЕЛИТЕ НУЖНУЮ ВЕРСИЮ ТУТ
 NEXUS_REPO_BACKEND_NAME="seredada-backend"
-NEXUS_REPO_URL=http://93.77.166.24:8081
+NEXUS_REPO_URL="http://${REGISTRY}"
 
 DOWNLOAD_PATH="/tmp/sandbox/backend"
 SERVICE_PATH="/opt/sandbox/backend"

@@ -2,15 +2,14 @@
 # Чтобы скрипт завершался, если есть ошибки
 set -xe
 
-REGISTRY=""
 VERSION=$(date -u +%Y%m%d-%H%M%S)
 
 source ../../.env
 
 docker buildx build \
   --file $PWD/Dockerfile \
-  --tag "${REGISTRY}sandbox-backend:latest" \
-  --tag "${REGISTRY}sandbox-backend:${VERSION}" \
+  --tag "sandbox-backend:latest" \
+  --tag "sandbox-backend:${VERSION}" \
   --pull \
   --no-cache \
   --load \
