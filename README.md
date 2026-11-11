@@ -36,7 +36,7 @@
 6. Получить и изучить инструкцию по настройке и запуску сервисов с помощью подсистемы `systemd`.
 7. Научиться стягивать свежие артефакты на удаленную машину из артефактория и запустить полноценно приложение в подсистеме `systemd`.
 
-## Этап 2: GitLab, docker, docker compose
+## Этап 2: Docker, docker compose
 
 1. Собрать решение в Docker локально.
 2. Запустить сервисы локально.
@@ -80,4 +80,182 @@
 1. Пайплайн развертывания необходимо в виде bash-скрипта, он должен обеспечивать автоматизированное развертывание.
 2. Пайплайн должен содержать один шаг, требующий интерактивного ввода секретных данных - шаг `docker login`.
 3. Убедитесь, что ваш скрипт запуска учтет все изменения, внесенные в docker-compose.yml и применит их при повторном запуске пайпайна.
-4. Убедтесь, что ваш скрипт учитывает изменения образа на удаленном registry даже в случае использования идентичного тега (например `latest`).
+4. Убедитесь, что ваш скрипт учитывает изменения образа на удаленном registry даже в случае использования идентичного тега (например `latest`).
+
+## Этап 3: Github actions
+
+1. Подготовить секреты и окружение GitHub для сборки и деплоя.
+2. Реализовать пайплайн сборки приложения с публикацией образов в два registry (ghcr.io и Nexus) и сквозным версионированием.
+3. Реализовать пайплайн развертывания приложения с использованием docker compose (ssh/scp).
+4. Опционально: настроить ограничения и параллелизм пайплайна (`permissions`, `concurrency`).
+5. *Добавить прогон модульных тестов (если они имеются в сервисах).
+
+### Подготовка окружения
+
+1. Убедитесь, что в репозитории на GitHub есть директория `.github/workflows/` — именно в ней GitHub ищет описания пайплайнов.
+2. Создайте отдельную SSH-пару для деплоя, публичную часть добавьте в `~/.ssh/authorized_keys` на VM. Не используйте свой личный ключ.
+3. В **Settings → Secrets and variables → Actions** добавьте секреты:
+   - `VM_HOST`, `VM_USER` — адрес и пользователь VM в YC;
+   - `VM_SSH_KEY` — приватный ключ деплоя;
+   - `VM_SSH_KNOWN_HOSTS` — вывод `ssh-keyscan <VM_HOST>`;
+   - `APP_ENV_FILE` — полное содержимое `.env` приложения (вместо хранения файла в репозитории);
+   - `NEXUS_HOST`, `NEXUS_REPO_USER`, `NEXUS_REPO_PASS` — доступ к Nexus;
+   - `GHCR_PAT` — токен со scope `read:packages` для `docker login` на VM.
+4. В **Settings → Environments** создайте окружение `production`; при желании включите **Required reviewers**, чтобы деплой требовал подтверждения.
+5. Проверьте, что security group VM в YC разрешает входящий SSH (порт 22) — иначе раннер не сможет подключиться.
+
+> Секреты не должны попадать в репозиторий и в логи пайплайна. Не включайте `set -x` в скриптах деплоя.
+
+### Триггеры и структура пайплайна
+
+1. Пайплайн запускается при пуше в любую ветку и вручную:
+
+   ```yaml
+   on:
+     push:
+       branches: ["**"]
+     workflow_dispatch:
+   ```
+
+   Обработка форков и `pull_request` не требуется.
+
+2. Пайплайн описывается одним файлом `.github/workflows/ci.yml` с тремя job'ами:
+
+   ```text
+   version → build → deploy
+   ```
+
+3. `deploy` выполняется только при пуше в основную ветку:
+
+   ```yaml
+   if: github.ref == 'refs/heads/main'
+   needs: build
+   ```
+
+   Пуш в любую другую ветку собирает и публикует образы, но ничего не разворачивает.
+
+4. Ручной запуск (`workflow_dispatch`) принимает входной параметр `VERSION` — для повторного деплоя и отката.
+
+### Требования к именованию образов
+
+1. Имена — только lowercase, в kebab-case, без пробелов и подчёркиваний.
+2. Компоненты называются `backend` и `frontend`; имя образа — `sandbox-<component>`.
+3. В Nexus образ размещается в **личном hosted-репозитории** `<фамилияио>-<component>-docker`:
+   - `<NEXUS_HOST>/<фамилияио>-backend-docker/sandbox-backend:<tag>`;
+   - `<NEXUS_HOST>/<фамилияио>-frontend-docker/sandbox-frontend:<tag>`.
+
+   Пример для ФИО Середа Д.А.: `seredada-backend-docker/sandbox-backend:latest`.
+4. В ghcr.io вместо личного репозитория Nexus используется пространство имён владельца:
+   - `ghcr.io/<owner>/sandbox-backend:<tag>`;
+   - `ghcr.io/<owner>/sandbox-frontend:<tag>`.
+5. Полные наименования репозиториев в `.env` (`REPOSITORY_BACKEND`, `RPOSITORY_FRONTEND`), чтобы `docker-compose.yml` не зависел от конкретного registry.
+
+### Требования к версионированию
+
+1. Версия вычисляется один раз за запуск пайплайна в UTC:
+
+   ```sh
+   VERSION=$(date -u +%Y%m%d-%H%M%S)
+   ```
+
+   Пример: `20261111-101500`.
+
+2. Каждый образ получает теги:
+   - `$VERSION` — всегда (неизменяемый, для деплоя и отката);
+   - `sha-<7 символов SHA коммита>` — всегда (трассировка до коммита);
+   - `latest` — **только для пуша в основную ветку** (`main`). Из feature-веток `latest` не публикуется, иначе последняя сборка любой ветки перезапишет стабильный тег.
+
+3. Один образ собирается один раз и пушится в оба registry (не собирайте отдельно под каждый registry).
+4. `VERSION` передаётся из job'а `version` в `build` и `deploy` через `outputs`, чтобы теги в ghcr.io и Nexus совпадали.
+5. `VERSION` никогда не переиспользуется: повторная сборка того же коммита = новый timestamp.
+6. `VERSION` записывается на VM (в `.env` или файл `version`), чтобы по серверу было видно, что именно развёрнуто.
+7. Откат выполняется указанием предыдущего `VERSION` — пересборка не нужна.
+
+### Пайплайн сборки (job `build`)
+
+1. Job `version` вычисляет версию и отдаёт её дальше:
+
+   ```yaml
+   - run: echo "version=$(date -u +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+     id: version
+   ```
+
+2. Job `build` использует матрицу по компонентам (`backend`, `frontend`), чтобы не дублировать шаги:
+   - `actions/checkout`;
+   - `docker/setup-buildx-action`;
+   - `docker/login-action` дважды — в `ghcr.io` (по `GITHUB_TOKEN`) и в Nexus (по `NEXUS_REPO_USER`/`NEXUS_REPO_PASS`);
+   - `docker/metadata-action` формирует теги, `latest` включается только для основной ветки:
+
+     ```yaml
+     tags: |
+       type=raw,value=${{ needs.version.outputs.version }}
+       type=sha,format=short
+       type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+     ```
+
+   - `docker/build-push-action` с `context: ./${{ matrix.component }}`, кэшем `cache-from/cache-to: type=gha` и списком `images`, содержащим **оба registry** — образ собирается один раз и пушится в оба:
+
+     ```yaml
+     images: |
+       ghcr.io/${{ github.repository_owner }}/sandbox-${{ matrix.component }}
+       ${{ secrets.NEXUS_HOST }}/seredada-${{ matrix.component }}-docker/sandbox-${{ matrix.component }}
+     ```
+
+     `seredada` замените на свою фамилию.
+
+3. `push: true` для `push`/`workflow_dispatch`; если образ не нужно публиковать (например, отладочный запуск) — `push: false`.
+4. Dockerfile остаётся единственным источником правды о сборке: локальные `build-docker.sh` продолжают работать, пайплайн собирает те же файлы через стандартные actions.
+5. Проверка результата: образы видны в **Packages** и в Nexus, локально выполняется `docker pull ghcr.io/<owner>/sandbox-backend:latest`. После пуша в feature-ветку появились `$VERSION` и `sha-*`, а `latest` не изменился; после пуша в `main` обновился и `latest`.
+
+### Пайплайн развертывания (job `deploy`)
+
+1. Job выполняется после `build` и только для основной ветки, плюс `workflow_dispatch` для повторного деплоя/отката.
+2. Шаги деплоя «голым» ssh/scp:
+   - `actions/checkout`;
+   - сформировать `.env` из секрета `APP_ENV_FILE`, добавив `IMAGE_REGISTRY`, `IMAGE_TAG=$VERSION`, `VERSION`;
+   - `scp` на VM: `docker-compose.yml`, `.env`, `deploy.sh`;
+   - по `ssh`: `docker login` в registry, из которого тянем образы, `docker compose pull`, `docker compose up -d --remove-orphans`, `docker image prune -f`;
+   - `curl` по health-эндпоинту; если проверка не прошла — пайплайн падает.
+3. Registry для скачивания задаётся переменной `IMAGE_REGISTRY`: по умолчанию Nexus (как в Этапе 2), ghcr.io — как альтернатива, если Nexus недоступен с VM или работает по http.
+4. Обновление `latest`: `docker compose pull` всегда забирает новый digest, `up -d` пересоздаёт контейнер при его изменении; если контейнер не обновился — добавьте `--force-recreate`.
+5. Секреты используйте только в шагах деплоя и не выводите в лог.
+6. Откат: запустите деплой вручную с `VERSION` предыдущей сборки — compose подтянет неизменяемый тег.
+
+> Если для доступа к Nexus используется протокол http, адрес хоста Nexus нужно прописать в `/etc/docker/daemon.json` на VM в `insecure-registries` (аналогично Этапу 2).
+
+### Опциональные настройки пайплайна
+
+1. Явно ограничьте права токена:
+
+   ```yaml
+   permissions:
+     contents: read
+     packages: write
+   ```
+
+   > Если в настройках репозитория `GITHUB_TOKEN` уже имеет доступ к пакетам, блок можно опустить. При ограниченных правах по умолчанию без `packages: write` пуш в ghcr.io не пройдёт.
+
+2. Для сборки задайте отмену устаревших запусков одной ветки:
+
+   ```yaml
+   concurrency:
+     group: build-${{ github.ref }}
+     cancel-in-progress: true
+   ```
+
+3. Для деплоя запретите параллельные запуски:
+
+   ```yaml
+   concurrency:
+     group: deploy-production
+     cancel-in-progress: false
+   ```
+
+4. Проверьте поведение: два пуша подряд в одну ветку отменяют предыдущую сборку, а повторный запуск деплоя дожидается завершения текущего.
+
+### Модульные тесты (*)
+
+1. Добавьте job `test`, выполняемый до сборки; `build` и `deploy` зависят от него через `needs`.
+2. Запускайте тесты в контейнере из стадии `builder`: `npm ci && npm test` или `mvn test` — окружение совпадает с локальным.
+3. Публикуйте отчёты (JUnit, coverage) через `actions/upload-artifact`.
+4. Включите job `test` в **Branch protection → Require status checks**.

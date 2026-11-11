@@ -1,0 +1,187 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+    inputs:
+      VERSION:
+        description: "Версия для повторного деплоя или отката (например, 20261111-101500). Пусто — собрать новую."
+        required: false
+        type: string
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Calculate version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.VERSION }}
+        run: |
+          if [ -n "${INPUT_VERSION}" ]; then
+            VERSION="${INPUT_VERSION}"
+          else
+            VERSION="$(date -u +%Y%m%d-%H%M%S)"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${VERSION}"
+
+  build:
+    name: Build ${{ matrix.component }}
+    needs: version
+    # При ручном запуске с VERSION образы не пересобираются:
+    # версия уже существует и используется для повторного деплоя/отката.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.VERSION == '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Nexus
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.NEXUS_HOST }}
+          username: ${{ secrets.NEXUS_REPO_USER }}
+          password: ${{ secrets.NEXUS_REPO_PASS }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/sandbox-${{ matrix.component }}
+            ${{ secrets.NEXUS_HOST }}/seredada-${{ matrix.component }}-docker/sandbox-${{ matrix.component }}
+          tags: |
+            type=raw,value=${{ needs.version.outputs.version }}
+            type=sha,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./src/${{ matrix.component }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
+
+  deploy:
+    name: Deploy
+    needs: [version, build]
+    # Деплой выполняется только для main или при ручном запуске.
+    # always() нужен, чтобы ручной откат работал при пропущенной сборке.
+    if: |
+      always() &&
+      needs.version.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') &&
+      needs.build.result != 'failure' &&
+      needs.build.result != 'cancelled'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      # По умолчанию тянем образы из Nexus, ghcr.io — через переменную репозитория IMAGE_REGISTRY.
+      IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || secrets.NEXUS_HOST }}
+      REGISTRY_USER: ${{ vars.IMAGE_REGISTRY == 'ghcr.io' && github.actor || secrets.NEXUS_REPO_USER }}
+      REGISTRY_PASSWORD: ${{ vars.IMAGE_REGISTRY == 'ghcr.io' && secrets.GHCR_PAT || secrets.NEXUS_REPO_PASS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare .env
+        env:
+          APP_ENV_FILE: ${{ secrets.APP_ENV_FILE }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          printf '%s\n' "$APP_ENV_FILE" > .env
+
+          # Удаляем значения, которыми управляет пайплайн, чтобы не было дублей.
+          sed -i -E '/^(IMAGE_REGISTRY|IMAGE_TAG|VERSION)=/d' .env
+
+          # Для ghcr.io имена репозиториев всегда строятся от владельца репозитория,
+          # чтобы переключение IMAGE_REGISTRY действительно меняло источник образов.
+          if [ "${IMAGE_REGISTRY}" = "ghcr.io" ]; then
+            sed -i -E '/^(REPOSITORY_BACKEND|REPOSITORY_FRONTEND)=/d' .env
+            printf 'REPOSITORY_BACKEND=ghcr.io/%s/sandbox-backend\n' "${GITHUB_REPOSITORY_OWNER,,}" >> .env
+            printf 'REPOSITORY_FRONTEND=ghcr.io/%s/sandbox-frontend\n' "${GITHUB_REPOSITORY_OWNER,,}" >> .env
+          else
+            # Для Nexus REPOSITORY_* берём из APP_ENV_FILE, если они там есть.
+            # Если нет — формируем имена по выбранному registry.
+            if ! grep -q '^REPOSITORY_BACKEND=' .env; then
+              printf 'REPOSITORY_BACKEND=%s/seredada-backend-docker/sandbox-backend\n' "${IMAGE_REGISTRY}" >> .env
+            fi
+            if ! grep -q '^REPOSITORY_FRONTEND=' .env; then
+              printf 'REPOSITORY_FRONTEND=%s/seredada-frontend-docker/sandbox-frontend\n' "${IMAGE_REGISTRY}" >> .env
+            fi
+          fi
+
+          {
+            printf 'IMAGE_REGISTRY=%s\n' "${IMAGE_REGISTRY}"
+            printf 'IMAGE_TAG=%s\n' "$VERSION"
+            printf 'VERSION=%s\n' "$VERSION"
+          } >> .env
+
+      - name: Copy deployment files to VM
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_SSH_KNOWN_HOSTS: ${{ secrets.VM_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$VM_SSH_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$VM_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          SSH_OPTS=(
+            -i "$HOME/.ssh/deploy_key"
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts"
+            -o "StrictHostKeyChecking=yes"
+          )
+
+          ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_HOST" \
+            'sudo mkdir -p /opt/sandbox && sudo chown "$(id -u):$(id -g)" /opt/sandbox'
+
+          scp "${SSH_OPTS[@]}" docker-compose.yml .env deploy.sh "$VM_USER@$VM_HOST:/opt/sandbox/"
+
+          ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_HOST" 'chmod 600 /opt/sandbox/.env'
+
+      - name: Run deployment
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_SSH_KNOWN_HOSTS: ${{ secrets.VM_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$VM_SSH_KEY" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "$VM_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          # Пароль registry передаём только через stdin, чтобы он не попал в лог и список процессов.
+          printf '%s' "$REGISTRY_PASSWORD" | ssh \
+            -i "$HOME/.ssh/deploy_key" \
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            -o "StrictHostKeyChecking=yes" \
+            "$VM_USER@$VM_HOST" \
+            "cd /opt/sandbox && IMAGE_REGISTRY='$IMAGE_REGISTRY' REGISTRY_USER='$REGISTRY_USER' bash ./deploy.sh"
