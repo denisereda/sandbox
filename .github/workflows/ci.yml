@@ -118,7 +118,7 @@ jobs:
       needs.build.result != 'failure' &&
       needs.build.result != 'cancelled'
     runs-on: ubuntu-latest
-    environment: production
+    # environment: production
     # Деплой не отменяем: параллельные запуски выполняются строго по очереди.
     concurrency:
       group: deploy-production
