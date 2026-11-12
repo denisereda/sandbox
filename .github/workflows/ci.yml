@@ -36,6 +36,10 @@ jobs:
     # При ручном запуске с VERSION образы не пересобираются:
     # версия уже существует и используется для повторного деплоя/отката.
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.VERSION == '' }}
+    # Новый пуш в ту же ветку отменяет устаревшую сборку.
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -115,6 +119,10 @@ jobs:
       needs.build.result != 'cancelled'
     runs-on: ubuntu-latest
     environment: production
+    # Деплой не отменяем: параллельные запуски выполняются строго по очереди.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     env:
       # По умолчанию тянем образы из Nexus, ghcr.io — через переменную репозитория IMAGE_REGISTRY.
       IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || secrets.NEXUS_HOST }}
