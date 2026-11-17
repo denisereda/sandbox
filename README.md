@@ -180,31 +180,46 @@
      id: version
    ```
 
-2. Job `build` использует матрицу по компонентам (`backend`, `frontend`), чтобы не дублировать шаги:
+2. Job `build` использует матрицу по компонентам (`backend`, `frontend`), чтобы не дублировать шаги. Внутри — только явные команды Docker, без специализированных actions:
    - `actions/checkout`;
-   - `docker/setup-buildx-action`;
-   - `docker/login-action` дважды — в `ghcr.io` (по `GITHUB_TOKEN`) и в Nexus (по `NEXUS_REPO_USER`/`NEXUS_REPO_PASS`);
-   - `docker/metadata-action` формирует теги, `latest` включается только для основной ветки:
+   - шаг `Allow HTTP access to Nexus`: Nexus доступен по http, поэтому его хост прописывается в `/etc/docker/daemon.json` в `insecure-registries`, после чего демон перезапускается. Это единственное место настройки: тот же демон используется для `docker login`, `docker build` и `docker push`, отдельная настройка BuildKit не нужна;
+   - `docker login` дважды — в `ghcr.io` (по `GITHUB_TOKEN`) и в Nexus (по `NEXUS_REPO_USER`/`NEXUS_REPO_PASS`), пароль передаётся через `--password-stdin`;
+   - `docker build` собирает образ **один раз** и проставляет теги сразу для **обоих registry**:
 
-     ```yaml
-     tags: |
-       type=raw,value=${{ needs.version.outputs.version }}
-       type=sha,format=short
-       type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+     ```bash
+     docker build \
+       --tag "${GHCR_IMAGE}:${VERSION}" \
+       --tag "${GHCR_IMAGE}:sha-${SHORT_SHA}" \
+       --tag "${NEXUS_IMAGE}:${VERSION}" \
+       --tag "${NEXUS_IMAGE}:sha-${SHORT_SHA}" \
+       "./src/${COMPONENT}"
      ```
 
-   - `docker/build-push-action` с `context: ./${{ matrix.component }}`, кэшем `cache-from/cache-to: type=gha` и списком `images`, содержащим **оба registry** — образ собирается один раз и пушится в оба:
+   - `latest` добавляется только для основной ветки:
 
-     ```yaml
-     images: |
-       ghcr.io/${{ github.repository_owner }}/sandbox-${{ matrix.component }}
-       ${{ secrets.NEXUS_HOST }}/seredada-${{ matrix.component }}-docker/sandbox-${{ matrix.component }}
+     ```bash
+     if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+       TAGS+=(--tag "${GHCR_IMAGE}:latest" --tag "${NEXUS_IMAGE}:latest")
+     fi
      ```
 
-     `seredada` замените на свою фамилию.
+   - Имена registry задаются в `env` job'а:
 
-3. `push: true` для `push`/`workflow_dispatch`; если образ не нужно публиковать (например, отладочный запуск) — `push: false`.
-4. Dockerfile остаётся единственным источником правды о сборке: локальные `build-docker.sh` продолжают работать, пайплайн собирает те же файлы через стандартные actions.
+     ```yaml
+     GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/sandbox-${{ matrix.component }}
+     NEXUS_IMAGE: ${{ secrets.NEXUS_HOST }}/seredada-${{ matrix.component }}-docker/sandbox-${{ matrix.component }}
+     ```
+
+     > `seredada` замените на свою фамилию.
+
+   - `docker push --all-tags` отправляет собранный образ в оба registry:
+
+     ```bash
+     docker push --all-tags "${GHCR_IMAGE}"
+     docker push --all-tags "${NEXUS_IMAGE}"
+     ```
+
+4. Dockerfile остаётся единственным источником правды о сборке: локальные `build-docker.sh` (они используют `docker buildx build`) собирают те же файлы, что и пайплайн.
 5. Проверка результата: образы видны в **Packages** и в Nexus, локально выполняется `docker pull ghcr.io/<owner>/sandbox-backend:latest`. После пуша в feature-ветку появились `$VERSION` и `sha-*`, а `latest` не изменился; после пуша в `main` обновился и `latest`.
 
 ### Пайплайн развертывания (job `deploy`)
@@ -222,6 +237,9 @@
 6. Откат: запустите деплой вручную с `VERSION` предыдущей сборки — compose подтянет неизменяемый тег.
 
 > Если для доступа к Nexus используется протокол http, адрес хоста Nexus нужно прописать в `/etc/docker/daemon.json` на VM в `insecure-registries` (аналогично Этапу 2).
+
+### Добавление ручного запуска
+> workflow_dispatch
 
 ### Опциональные настройки пайплайна
 
