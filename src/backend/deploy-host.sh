@@ -1,15 +1,15 @@
 #! /bin/bash
-# Скрипт необходимо передать на удаленную машину и выполнить после подключения через SSH
+# Скрипт с файлом .env необходимо передать на удаленную машину и выполнить после подключения через SSH
 # Чтобы скрипт завершался, если есть ошибки
 set -xe
 
-source ../../.env
+source .env
 
 BACKEND_GO_FILE_NAME="app"
 SERVICE_NAME="sandbox-backend"
 SYSTEMD_SERVICE_NAME="${SERVICE_NAME}.service"
 VERSION="20261105-084648" # <-- ОПРЕДЕЛИТЕ НУЖНУЮ ВЕРСИЮ ТУТ
-NEXUS_REPO_URL="http://${REGISTRY}"
+NEXUS_REPO_URL="http://${NEXUS_HOST}"
 
 DOWNLOAD_PATH="/tmp/sandbox/backend"
 SERVICE_PATH="/opt/sandbox/backend"
