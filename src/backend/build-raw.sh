@@ -29,7 +29,7 @@ cp ./sandbox-backend.service "./output/sandbox-backend-${VERSION}"
 tar -czvf "./output/sandbox-backend-${VERSION}.tar.gz" -C ./output/sandbox-backend-${VERSION} .
 
 # Отправка по SSH
-# scp "/output/sandbox-backend-${VERSION}" ubuntu@153.51.117.227:/tmp/sandbox/backend
+# scp "/output/sandbox-backend-${VERSION}" ${VM_USER}@${VM_HOST}:/tmp/sandbox/backend
 
 # Публикация в Nexus
-curl -u "${NEXUS_REPO_USER}:${NEXUS_REPO_PASS}" --upload-file ./output/sandbox-backend-${VERSION}.tar.gz ${NEXUS_REPO_URL}/repository/${NEXUS_REPO_BACKEND_NAME}/${VERSION}/sandbox-backend-${VERSION}.tar.gz
+curl -u "${NEXUS_REPO_USER}:${NEXUS_REPO_PASS}" --upload-file ./output/sandbox-backend-${VERSION}.tar.gz ${REGISTRY}repository/${BACKEND_RAW}/sandbox-backend-${VERSION}.tar.gz
