@@ -181,13 +181,14 @@ jobs:
   deploy:
     name: Deploy
     needs: [version, test, build-ghcr]
-    # Деплой выполняется только для main или при ручном запуске.
+    # Деплой выполняется при пуше в любую ветку или при ручном запуске.
+    # Все ветки деплоятся в один каталог и на один порт: побеждает последний запуск.
     # always() нужен, чтобы ручной откат работал при пропущенной сборке.
     if: |
       always() &&
       needs.version.result == 'success' &&
       needs.test.result == 'success' &&
-      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') &&
+      (github.ref_type == 'branch' || github.event_name == 'workflow_dispatch') &&
       needs.build-ghcr.result != 'failure' &&
       needs.build-ghcr.result != 'cancelled'
     runs-on: ubuntu-latest

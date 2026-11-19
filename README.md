@@ -125,14 +125,14 @@
    version → build → deploy
    ```
 
-3. `deploy` выполняется только при пуше в основную ветку:
+3. `deploy` выполняется при пуше в любую ветку, а также при `workflow_dispatch` для повторного деплоя/отката:
 
    ```yaml
-   if: github.ref == 'refs/heads/main'
-   needs: build
+   if: github.ref_type == 'branch' || github.event_name == 'workflow_dispatch'
+   needs: [version, test, build-ghcr]
    ```
 
-   Пуш в любую другую ветку собирает и публикует образы, но ничего не разворачивает.
+   Все ветки деплоятся в один каталог `/opt/sandbox` и на один порт `8889`, поэтому побеждает последний запуск.
 
 4. Ручной запуск (`workflow_dispatch`) принимает входной параметр `VERSION` — для повторного деплоя и отката.
 
@@ -224,7 +224,7 @@
 
 ### Пайплайн развертывания (job `deploy`)
 
-1. Job выполняется после `build` и только для основной ветки, плюс `workflow_dispatch` для повторного деплоя/отката.
+1. Job выполняется после `build` при пуше в любую ветку, плюс `workflow_dispatch` для повторного деплоя/отката.
 2. Образы всегда скачиваются из ghcr.io: `ghcr.io/<owner>/sandbox-backend` и `ghcr.io/<owner>/sandbox-frontend`.
 3. Шаги деплоя «голым» ssh/scp:
    - `actions/checkout`;
