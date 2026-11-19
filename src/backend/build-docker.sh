@@ -8,8 +8,8 @@ source ../../.env
 
 docker buildx build \
   --file $PWD/Dockerfile \
-  --tag "${REGISTRY_BACKEND}/sandbox-backend:latest" \
-  --tag "${REGISTRY_BACKEND}/sandbox-backend:${VERSION}" \
+  --tag "${REGISTRY}${BACKEND_IMAGE}:latest" \
+  --tag "${REGISTRY}${BACKEND_IMAGE}:${VERSION}" \
   --pull \
   --no-cache \
   --push \

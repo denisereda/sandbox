@@ -6,6 +6,7 @@ set -euo pipefail
 : "${IMAGE_REGISTRY:?IMAGE_REGISTRY is required}"
 : "${REGISTRY_USER:?REGISTRY_USER is required}"
 
+
 APP_DIR="${APP_DIR:-$(pwd)}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8889/health}"
 

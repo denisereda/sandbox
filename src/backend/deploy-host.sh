@@ -9,7 +9,6 @@ BACKEND_GO_FILE_NAME="app"
 SERVICE_NAME="sandbox-backend"
 SYSTEMD_SERVICE_NAME="${SERVICE_NAME}.service"
 VERSION="20261105-084648" # <-- ОПРЕДЕЛИТЕ НУЖНУЮ ВЕРСИЮ ТУТ
-NEXUS_REPO_BACKEND_NAME="seredada-backend"
 NEXUS_REPO_URL="http://${REGISTRY}"
 
 DOWNLOAD_PATH="/tmp/sandbox/backend"
@@ -27,7 +26,7 @@ mkdir -p "${DOWNLOAD_PATH}"
 sudo mkdir -p "${SERVICE_PATH}"
 
 # Скачиваем свежую версию сервиса
-sudo curl -u "${NEXUS_REPO_USER}:${NEXUS_REPO_PASS}" -o "${DOWNLOAD_PATH}/${SERVICE_NAME}-${VERSION}.tar.gz" ${NEXUS_REPO_URL}/repository/${NEXUS_REPO_BACKEND_NAME}/${VERSION}/${SERVICE_NAME}-${VERSION}.tar.gz
+sudo curl -u "${NEXUS_REPO_USER}:${NEXUS_REPO_PASS}" -o "${DOWNLOAD_PATH}/${SERVICE_NAME}-${VERSION}.tar.gz" ${NEXUS_REPO_URL}repository/${BACKEND_RAW}/${SERVICE_NAME}-${VERSION}.tar.gz
 # И распаковываем ее
 tar -xzvf "${DOWNLOAD_PATH}/${SERVICE_NAME}-${VERSION}.tar.gz" -C "${DOWNLOAD_PATH}"
 
