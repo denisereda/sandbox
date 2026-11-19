@@ -147,64 +147,33 @@ jobs:
       needs.build.result != 'failure' &&
       needs.build.result != 'cancelled'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     # environment: production
     # Деплой не отменяем: параллельные запуски выполняются строго по очереди.
     concurrency:
       group: deploy-production
       cancel-in-progress: false
-    env:
-      # По умолчанию тянем образы из Nexus, ghcr.io — через переменную репозитория IMAGE_REGISTRY.
-      IMAGE_REGISTRY: ${{ vars.IMAGE_REGISTRY || secrets.NEXUS_HOST }}
-      REGISTRY_USER: ${{ vars.IMAGE_REGISTRY == 'ghcr.io' && github.actor || secrets.NEXUS_REPO_USER }}
-      REGISTRY_PASSWORD: ${{ vars.IMAGE_REGISTRY == 'ghcr.io' && secrets.GHCR_PAT || secrets.NEXUS_REPO_PASS }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # .env нужен docker-compose: имена образов в ghcr.io и тег версии.
       - name: Prepare .env
-        env:
-          APP_ENV_FILE: ${{ secrets.APP_ENV_FILE }}
-          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          printf '%s\n' "$APP_ENV_FILE" > .env
+          cat > .env <<EOF
+          REPOSITORY_BACKEND=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sandbox-backend
+          REPOSITORY_FRONTEND=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sandbox-frontend
+          IMAGE_TAG=${{ needs.version.outputs.version }}
+          EOF
 
-          # Удаляем значения, которыми управляет пайплайн, чтобы не было дублей.
-          sed -i -E '/^(IMAGE_REGISTRY|IMAGE_TAG|VERSION)=/d' .env
-
-          # Для ghcr.io имена репозиториев всегда строятся от владельца репозитория,
-          # чтобы переключение IMAGE_REGISTRY действительно меняло источник образов.
-          if [ "${IMAGE_REGISTRY}" = "ghcr.io" ]; then
-            sed -i -E '/^(REPOSITORY_BACKEND|REPOSITORY_FRONTEND)=/d' .env
-            printf 'REPOSITORY_BACKEND=ghcr.io/%s/sandbox-backend\n' "${GITHUB_REPOSITORY_OWNER,,}" >> .env
-            printf 'REPOSITORY_FRONTEND=ghcr.io/%s/sandbox-frontend\n' "${GITHUB_REPOSITORY_OWNER,,}" >> .env
-          else
-            # Для Nexus REPOSITORY_* берём из APP_ENV_FILE, если они там есть.
-            # Если нет — формируем имена по выбранному registry.
-            if ! grep -q '^REPOSITORY_BACKEND=' .env; then
-              printf 'REPOSITORY_BACKEND=%s/seredada-backend-docker/sandbox-backend\n' "${IMAGE_REGISTRY}" >> .env
-            fi
-            if ! grep -q '^REPOSITORY_FRONTEND=' .env; then
-              printf 'REPOSITORY_FRONTEND=%s/seredada-frontend-docker/sandbox-frontend\n' "${IMAGE_REGISTRY}" >> .env
-            fi
-          fi
-
-          {
-            printf 'IMAGE_REGISTRY=%s\n' "${IMAGE_REGISTRY}"
-            printf 'IMAGE_TAG=%s\n' "$VERSION"
-            printf 'VERSION=%s\n' "$VERSION"
-          } >> .env
-
-      - name: Copy deployment files to VM
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
-          VM_USER: ${{ secrets.VM_USER }}
-          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
-          VM_SSH_KNOWN_HOSTS: ${{ secrets.VM_SSH_KNOWN_HOSTS }}
+      - name: Deploy to VM
         run: |
           install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$VM_SSH_KEY" > "$HOME/.ssh/deploy_key"
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > "$HOME/.ssh/deploy_key"
           chmod 600 "$HOME/.ssh/deploy_key"
-          printf '%s\n' "$VM_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          printf '%s\n' "${{ secrets.VM_SSH_KNOWN_HOSTS }}" > "$HOME/.ssh/known_hosts"
           chmod 600 "$HOME/.ssh/known_hosts"
 
           SSH_OPTS=(
@@ -213,30 +182,13 @@ jobs:
             -o "StrictHostKeyChecking=yes"
           )
 
-          ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_HOST" \
+          ssh "${SSH_OPTS[@]}" "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
             'sudo mkdir -p /opt/sandbox && sudo chown "$(id -u):$(id -g)" /opt/sandbox'
 
-          scp "${SSH_OPTS[@]}" docker-compose.yml .env deploy.sh "$VM_USER@$VM_HOST:/opt/sandbox/"
+          scp "${SSH_OPTS[@]}" docker-compose.yml .env deploy-docker-compose-ci.sh \
+            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/opt/sandbox/"
 
-          ssh "${SSH_OPTS[@]}" "$VM_USER@$VM_HOST" 'chmod 600 /opt/sandbox/.env'
-
-      - name: Run deployment
-        env:
-          VM_HOST: ${{ secrets.VM_HOST }}
-          VM_USER: ${{ secrets.VM_USER }}
-          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
-          VM_SSH_KNOWN_HOSTS: ${{ secrets.VM_SSH_KNOWN_HOSTS }}
-        run: |
-          install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$VM_SSH_KEY" > "$HOME/.ssh/deploy_key"
-          chmod 600 "$HOME/.ssh/deploy_key"
-          printf '%s\n' "$VM_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          chmod 600 "$HOME/.ssh/known_hosts"
-
-          # Пароль registry передаём только через stdin, чтобы он не попал в лог и список процессов.
-          printf '%s' "$REGISTRY_PASSWORD" | ssh \
-            -i "$HOME/.ssh/deploy_key" \
-            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
-            -o "StrictHostKeyChecking=yes" \
-            "$VM_USER@$VM_HOST" \
-            "cd /opt/sandbox && IMAGE_REGISTRY='$IMAGE_REGISTRY' REGISTRY_USER='$REGISTRY_USER' bash ./deploy.sh"
+          # Пароль GHCR передаём только через stdin, чтобы он не попал в лог и список процессов.
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" | ssh "${SSH_OPTS[@]}" \
+            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
+            "cd /opt/sandbox && REGISTRY_USER='${{ github.actor }}' bash ./deploy-docker-compose-ci.sh"

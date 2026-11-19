@@ -225,18 +225,17 @@
 ### Пайплайн развертывания (job `deploy`)
 
 1. Job выполняется после `build` и только для основной ветки, плюс `workflow_dispatch` для повторного деплоя/отката.
-2. Шаги деплоя «голым» ssh/scp:
+2. Образы всегда скачиваются из ghcr.io: `ghcr.io/<owner>/sandbox-backend` и `ghcr.io/<owner>/sandbox-frontend`.
+3. Шаги деплоя «голым» ssh/scp:
    - `actions/checkout`;
-   - сформировать `.env` из секрета `APP_ENV_FILE`, добавив `IMAGE_REGISTRY`, `IMAGE_TAG=$VERSION`, `VERSION`;
-   - `scp` на VM: `docker-compose.yml`, `.env`, `deploy.sh`;
-   - по `ssh`: `docker login` в registry, из которого тянем образы, `docker compose pull`, `docker compose up -d --remove-orphans`, `docker image prune -f`;
+   - сформировать `.env` из трёх переменных: `REPOSITORY_BACKEND`, `REPOSITORY_FRONTEND`, `IMAGE_TAG=$VERSION`;
+   - `scp` на VM: `docker-compose.yml`, `.env`, `deploy-docker-compose-ci.sh`;
+   - по `ssh`: `docker login ghcr.io`, `docker compose pull`, `docker compose up -d --remove-orphans --force-recreate`, `docker image prune -f`;
    - `curl` по health-эндпоинту; если проверка не прошла — пайплайн падает.
-3. Registry для скачивания задаётся переменной `IMAGE_REGISTRY`: по умолчанию Nexus (как в Этапе 2), ghcr.io — как альтернатива, если Nexus недоступен с VM или работает по http.
-4. Обновление `latest`: `docker compose pull` всегда забирает новый digest, `up -d` пересоздаёт контейнер при его изменении; если контейнер не обновился — добавьте `--force-recreate`.
-5. Секреты используйте только в шагах деплоя и не выводите в лог.
-6. Откат: запустите деплой вручную с `VERSION` предыдущей сборки — compose подтянет неизменяемый тег.
-
-> Если для доступа к Nexus используется протокол http, адрес хоста Nexus нужно прописать в `/etc/docker/daemon.json` на VM в `insecure-registries` (аналогично Этапу 2).
+4. Для деплоя нужны секреты `VM_HOST`, `VM_USER`, `VM_SSH_KEY`, `VM_SSH_KNOWN_HOSTS` и встроенный `GITHUB_TOKEN` с правом `packages: read`.
+5. Обновление `latest`: `docker compose pull` всегда забирает новый digest, `up -d` пересоздаёт контейнер при его изменении; если контейнер не обновился — добавьте `--force-recreate`.
+6. Секреты используйте только в шагах деплоя и не выводите в лог.
+7. Откат: запустите деплой вручную с `VERSION` предыдущей сборки — compose подтянет неизменяемый тег.
 
 ### Добавление ручного запуска
 > workflow_dispatch
