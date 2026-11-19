@@ -1,0 +1,61 @@
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      VERSION:
+        description: "Версия образов (например, 20261119-214623)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yc
+        run: |
+          curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+          echo "$HOME/yandex-cloud/bin" >> "$GITHUB_PATH"
+
+      - name: Configure yc
+        env:
+          YC_SA_KEY: ${{ secrets.YC_SA_KEY }}
+          YC_FOLDER_ID: ${{ vars.YC_FOLDER_ID }}
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/yc-sa-key.json"
+          printf '%s' "$YC_SA_KEY" > "$RUNNER_TEMP/yc-sa-key.json"
+
+          yc config profile create ci
+          yc config set service-account-key "$RUNNER_TEMP/yc-sa-key.json"
+          yc config set folder-id "$YC_FOLDER_ID"
+
+      - name: Configure kubeconfig
+        env:
+          K8S_CLUSTER_NAME: ${{ vars.K8S_CLUSTER_NAME }}
+        run: |
+          yc managed-kubernetes cluster get-credentials \
+            --name "$K8S_CLUSTER_NAME" \
+            --external \
+            --force
+
+          kubectl get nodes
+
+      - name: Deploy
+        env:
+          VERSION: ${{ inputs.VERSION }}
+        run: |
+          helm upgrade --install sandbox ./helm/sandbox \
+            --namespace default \
+            --set image.tag="$VERSION" \
+            --wait --timeout 10m
