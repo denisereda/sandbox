@@ -53,7 +53,7 @@ jobs:
 
       - name: Deploy
         env:
-          VERSION: ${{ inputs.VERSION }}
+          VERSION: ${{ inputs.VERSION || 'latest' }}
         run: |
           helm upgrade --install sandbox ./helm/sandbox \
             --namespace default \
