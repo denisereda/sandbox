@@ -1,7 +1,6 @@
 services:
   backend:
-    # Образ из registry, указанного в .env (REPOSITORY_BACKEND + IMAGE_TAG)
-    image: "${REPOSITORY_BACKEND:-${REGISTRY_BACKEND}/sandbox-backend}:${IMAGE_TAG:-latest}"
+    image: "${REGISTRY}${BACKEND_IMAGE}:${IMAGE_TAG:-latest}"
     container_name: sandbox-backend
     env_file:
       - .env
@@ -21,8 +20,7 @@ services:
       retries: 6
  
   frontend:
-    # Образ из registry, указанного в .env (REPOSITORY_FRONTEND + IMAGE_TAG)
-    image: "${REPOSITORY_FRONTEND:-${REGISTRY_FRONTEND}/sandbox-frontend}:${IMAGE_TAG:-latest}"
+    image: "${REGISTRY}${FRONTEND_IMAGE}:${IMAGE_TAG:-latest}"
     container_name: sandbox-frontend
     env_file:
       - .env

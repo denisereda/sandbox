@@ -1,0 +1,23 @@
+nodePort: 30080
+
+image:
+  backend: ghcr.io/denisereda/sandbox-backend
+  frontend: ghcr.io/denisereda/sandbox-frontend
+  tag: latest
+  pullPolicy: IfNotPresent
+
+resources:
+  backend:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  frontend:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

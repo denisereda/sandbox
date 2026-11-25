@@ -38,7 +38,7 @@ jobs:
     # Устаревший прогон тестов отменяется новым пушем в ту же ветку.
     # Отдельная группа: job'ы в одной группе отменяли бы друг друга.
     concurrency:
-      group: test-${{ github.ref }}
+      group: test-backend-${{ github.ref }}
       cancel-in-progress: true
     timeout-minutes: 15
     steps:
@@ -71,9 +71,9 @@ jobs:
     # версия уже существует и используется для повторного деплоя/отката.
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.VERSION == '' }}
     # Новый пуш в ту же ветку отменяет устаревшую сборку.
-    # concurrency:
-    #   group: build-ghcr-${{ github.ref }}
-    #   cancel-in-progress: true
+    concurrency:
+      group: build-ghcr-${{ matrix.component }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -116,67 +116,67 @@ jobs:
       - name: Push image to GHCR
         run: docker push --all-tags "${IMAGE}"
 
-  # build-nexus:
-  #   name: Build ${{ matrix.component }} (Nexus)
-  #   needs: [version, test]
-  #   # При ручном запуске с VERSION образы не пересобираются:
-  #   # версия уже существует и используется для повторного деплоя/отката.
-  #   if: ${{ github.event_name != 'workflow_dispatch' || inputs.VERSION == '' }}
-  #   # Новый пуш в ту же ветку отменяет устаревшую сборку.
-  #   # concurrency:
-  #   #   group: build-nexus-${{ github.ref }}
-  #   #   cancel-in-progress: true
-  #   runs-on: ubuntu-latest
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       component: [backend, frontend]
-  #   env:
-  #     COMPONENT: ${{ matrix.component }}
-  #     VERSION: ${{ needs.version.outputs.version }}
-  #     IMAGE: ${{ secrets.NEXUS_HOST }}/seredada-${{ matrix.component }}-docker/sandbox-${{ matrix.component }}
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
+  build-nexus:
+    name: Build ${{ matrix.component }} (Nexus)
+    needs: [version, test]
+    # При ручном запуске с VERSION образы не пересобираются:
+    # версия уже существует и используется для повторного деплоя/отката.
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.VERSION == '' }}
+    # Новый пуш в ту же ветку отменяет устаревшую сборку.
+    concurrency:
+      group: build-nexus-${{ matrix.component }}-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
+    env:
+      COMPONENT: ${{ matrix.component }}
+      VERSION: ${{ needs.version.outputs.version }}
+      IMAGE: ${{ vars.NEXUS_HOST }}/sereda-docker/sandbox-${{ matrix.component }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  #     # Nexus доступен по http. Разрешение задаётся только демону Docker
-  #     # (/etc/docker/daemon.json): он же используется для docker login,
-  #     # docker build и docker push, отдельная настройка BuildKit не нужна.
-  #     - name: Allow HTTP access to Nexus
-  #       env:
-  #         NEXUS_HOST: ${{ secrets.NEXUS_HOST }}
-  #       run: |
-  #         sudo mkdir -p /etc/docker
-  #         printf '{"insecure-registries":["%s"]}\n' "${NEXUS_HOST}" | sudo tee /etc/docker/daemon.json
-  #         sudo systemctl restart docker
+      # Nexus доступен по http. Разрешение задаётся только демону Docker
+      # (/etc/docker/daemon.json): он же используется для docker login,
+      # docker build и docker push, отдельная настройка BuildKit не нужна.
+      - name: Allow HTTP access to Nexus
+        env:
+          NEXUS_HOST: ${{ vars.NEXUS_HOST }}
+        run: |
+          sudo mkdir -p /etc/docker
+          printf '{"insecure-registries":["%s"]}\n' "${NEXUS_HOST}" | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
 
-  #     - name: Login to Nexus
-  #       env:
-  #         NEXUS_HOST: ${{ secrets.NEXUS_HOST }}
-  #         NEXUS_REPO_USER: ${{ secrets.NEXUS_REPO_USER }}
-  #         NEXUS_REPO_PASS: ${{ secrets.NEXUS_REPO_PASS }}
-  #       run: |
-  #         printf '%s' "${NEXUS_REPO_PASS}" | docker login "${NEXUS_HOST}" -u "${NEXUS_REPO_USER}" --password-stdin
+      - name: Login to Nexus
+        env:
+          NEXUS_HOST: ${{ vars.NEXUS_HOST }}
+          NEXUS_REPO_USER: ${{ secrets.NEXUS_REPO_USER }}
+          NEXUS_REPO_PASS: ${{ secrets.NEXUS_REPO_PASS }}
+        run: |
+          printf '%s' "${NEXUS_REPO_PASS}" | docker login "${NEXUS_HOST}" -u "${NEXUS_REPO_USER}" --password-stdin
 
-  #     - name: Build image
-  #       run: |
-  #         SHORT_SHA="${GITHUB_SHA:0:7}"
-  #         TAGS=(
-  #           --tag "${IMAGE}:${VERSION}"
-  #           --tag "${IMAGE}:sha-${SHORT_SHA}"
-  #         )
+      - name: Build image
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          TAGS=(
+            --tag "${IMAGE}:${VERSION}"
+            --tag "${IMAGE}:sha-${SHORT_SHA}"
+          )
 
-  #         if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-  #           TAGS+=(--tag "${IMAGE}:latest")
-  #         fi
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            TAGS+=(--tag "${IMAGE}:latest")
+          fi
 
-  #         docker build \
-  #           --file "./src/${COMPONENT}/Dockerfile" \
-  #           "${TAGS[@]}" \
-  #           "./src/${COMPONENT}"
+          docker build \
+            --file "./src/${COMPONENT}/Dockerfile" \
+            "${TAGS[@]}" \
+            "./src/${COMPONENT}"
 
-  #     - name: Push image to Nexus
-  #       run: docker push --all-tags "${IMAGE}"
+      - name: Push image to Nexus
+        run: docker push --all-tags "${IMAGE}"
 
   deploy:
     name: Deploy
@@ -208,8 +208,9 @@ jobs:
       - name: Prepare .env
         run: |
           cat > .env <<EOF
-          REPOSITORY_BACKEND=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sandbox-backend
-          REPOSITORY_FRONTEND=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sandbox-frontend
+          REGISTRY=ghcr.io/
+          BACKEND_IMAGE=${GITHUB_REPOSITORY_OWNER,,}/sandbox-backend
+          FRONTEND_IMAGE=${GITHUB_REPOSITORY_OWNER,,}/sandbox-frontend
           IMAGE_TAG=${{ needs.version.outputs.version }}
           EOF
 
@@ -227,13 +228,13 @@ jobs:
             -o "StrictHostKeyChecking=yes"
           )
 
-          ssh "${SSH_OPTS[@]}" "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
+          ssh "${SSH_OPTS[@]}" "${{ secrets.VM_USER }}@${{ vars.VM_HOST }}" \
             'sudo mkdir -p /opt/sandbox && sudo chown "$(id -u):$(id -g)" /opt/sandbox'
 
           scp "${SSH_OPTS[@]}" docker-compose.yml .env deploy-docker-compose-ci.sh \
-            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/opt/sandbox/"
+            "${{ secrets.VM_USER }}@${{ vars.VM_HOST }}:/opt/sandbox/"
 
           # Пароль GHCR передаём только через stdin, чтобы он не попал в лог и список процессов.
           printf '%s' "${{ secrets.GITHUB_TOKEN }}" | ssh "${SSH_OPTS[@]}" \
-            "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
+            "${{ secrets.VM_USER }}@${{ vars.VM_HOST }}" \
             "cd /opt/sandbox && REGISTRY_USER='${{ github.actor }}' bash ./deploy-docker-compose-ci.sh"
