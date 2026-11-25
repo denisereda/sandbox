@@ -134,7 +134,7 @@ jobs:
     env:
       COMPONENT: ${{ matrix.component }}
       VERSION: ${{ needs.version.outputs.version }}
-      IMAGE: ${{ secrets.NEXUS_HOST }}/sereda-docker/sandbox-${{ matrix.component }}
+      IMAGE: ${{ vars.NEXUS_HOST }}/sereda-docker/sandbox-${{ matrix.component }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
