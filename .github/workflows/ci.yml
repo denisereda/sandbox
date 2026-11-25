@@ -38,7 +38,7 @@ jobs:
     # Устаревший прогон тестов отменяется новым пушем в ту же ветку.
     # Отдельная группа: job'ы в одной группе отменяли бы друг друга.
     concurrency:
-      group: test-${{ github.ref }}
+      group: test-backend-${{ github.ref }}
       cancel-in-progress: true
     timeout-minutes: 15
     steps:
@@ -71,9 +71,9 @@ jobs:
     # версия уже существует и используется для повторного деплоя/отката.
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.VERSION == '' }}
     # Новый пуш в ту же ветку отменяет устаревшую сборку.
-    # concurrency:
-    #   group: build-ghcr-${{ github.ref }}
-    #   cancel-in-progress: true
+    concurrency:
+      group: build-ghcr-${{ matrix.component }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -123,9 +123,9 @@ jobs:
     # версия уже существует и используется для повторного деплоя/отката.
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.VERSION == '' }}
     # Новый пуш в ту же ветку отменяет устаревшую сборку.
-    # concurrency:
-    #   group: build-nexus-${{ github.ref }}
-    #   cancel-in-progress: true
+    concurrency:
+      group: build-nexus-${{ matrix.component }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -178,63 +178,63 @@ jobs:
       - name: Push image to Nexus
         run: docker push --all-tags "${IMAGE}"
 
-#   deploy:
-#     name: Deploy
-#     needs: [version, test, build-ghcr]
-#     # Деплой выполняется при пуше в любую ветку или при ручном запуске.
-#     # Все ветки деплоятся в один каталог и на один порт: побеждает последний запуск.
-#     # always() нужен, чтобы ручной откат работал при пропущенной сборке.
-#     if: |
-#       always() &&
-#       needs.version.result == 'success' &&
-#       needs.test.result == 'success' &&
-#       (github.ref_type == 'branch' || github.event_name == 'workflow_dispatch') &&
-#       needs.build-ghcr.result != 'failure' &&
-#       needs.build-ghcr.result != 'cancelled'
-#     runs-on: ubuntu-latest
-#     permissions:
-#       contents: read
-#       packages: read
-#     # environment: production
-#     # Деплой не отменяем: параллельные запуски выполняются строго по очереди.
-#     concurrency:
-#       group: deploy-production
-#       cancel-in-progress: false
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v4
-# 
-#       # .env нужен docker-compose: имена образов в ghcr.io и тег версии.
-#       - name: Prepare .env
-#         run: |
-#           cat > .env <<EOF
-#           REGISTRY=ghcr.io/
-#           BACKEND_IMAGE=${GITHUB_REPOSITORY_OWNER,,}/sandbox-backend
-#           FRONTEND_IMAGE=${GITHUB_REPOSITORY_OWNER,,}/sandbox-frontend
-#           IMAGE_TAG=${{ needs.version.outputs.version }}
-#           EOF
-# 
-#       - name: Deploy to VM
-#         run: |
-#           install -d -m 700 "$HOME/.ssh"
-#           printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > "$HOME/.ssh/deploy_key"
-#           chmod 600 "$HOME/.ssh/deploy_key"
-#           printf '%s\n' "${{ secrets.VM_SSH_KNOWN_HOSTS }}" > "$HOME/.ssh/known_hosts"
-#           chmod 600 "$HOME/.ssh/known_hosts"
-# 
-#           SSH_OPTS=(
-#             -i "$HOME/.ssh/deploy_key"
-#             -o "UserKnownHostsFile=$HOME/.ssh/known_hosts"
-#             -o "StrictHostKeyChecking=yes"
-#           )
-# 
-#           ssh "${SSH_OPTS[@]}" "${{ secrets.VM_USER }}@${{ vars.VM_HOST }}" \
-#             'sudo mkdir -p /opt/sandbox && sudo chown "$(id -u):$(id -g)" /opt/sandbox'
-# 
-#           scp "${SSH_OPTS[@]}" docker-compose.yml .env deploy-docker-compose-ci.sh \
-#             "${{ secrets.VM_USER }}@${{ vars.VM_HOST }}:/opt/sandbox/"
-# 
-#           # Пароль GHCR передаём только через stdin, чтобы он не попал в лог и список процессов.
-#           printf '%s' "${{ secrets.GITHUB_TOKEN }}" | ssh "${SSH_OPTS[@]}" \
-#             "${{ secrets.VM_USER }}@${{ vars.VM_HOST }}" \
-#             "cd /opt/sandbox && REGISTRY_USER='${{ github.actor }}' bash ./deploy-docker-compose-ci.sh"
+  deploy:
+    name: Deploy
+    needs: [version, test, build-ghcr]
+    # Деплой выполняется при пуше в любую ветку или при ручном запуске.
+    # Все ветки деплоятся в один каталог и на один порт: побеждает последний запуск.
+    # always() нужен, чтобы ручной откат работал при пропущенной сборке.
+    if: |
+      always() &&
+      needs.version.result == 'success' &&
+      needs.test.result == 'success' &&
+      (github.ref_type == 'branch' || github.event_name == 'workflow_dispatch') &&
+      needs.build-ghcr.result != 'failure' &&
+      needs.build-ghcr.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    # environment: production
+    # Деплой не отменяем: параллельные запуски выполняются строго по очереди.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # .env нужен docker-compose: имена образов в ghcr.io и тег версии.
+      - name: Prepare .env
+        run: |
+          cat > .env <<EOF
+          REGISTRY=ghcr.io/
+          BACKEND_IMAGE=${GITHUB_REPOSITORY_OWNER,,}/sandbox-backend
+          FRONTEND_IMAGE=${GITHUB_REPOSITORY_OWNER,,}/sandbox-frontend
+          IMAGE_TAG=${{ needs.version.outputs.version }}
+          EOF
+
+      - name: Deploy to VM
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > "$HOME/.ssh/deploy_key"
+          chmod 600 "$HOME/.ssh/deploy_key"
+          printf '%s\n' "${{ secrets.VM_SSH_KNOWN_HOSTS }}" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+          SSH_OPTS=(
+            -i "$HOME/.ssh/deploy_key"
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts"
+            -o "StrictHostKeyChecking=yes"
+          )
+
+          ssh "${SSH_OPTS[@]}" "${{ secrets.VM_USER }}@${{ vars.VM_HOST }}" \
+            'sudo mkdir -p /opt/sandbox && sudo chown "$(id -u):$(id -g)" /opt/sandbox'
+
+          scp "${SSH_OPTS[@]}" docker-compose.yml .env deploy-docker-compose-ci.sh \
+            "${{ secrets.VM_USER }}@${{ vars.VM_HOST }}:/opt/sandbox/"
+
+          # Пароль GHCR передаём только через stdin, чтобы он не попал в лог и список процессов.
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" | ssh "${SSH_OPTS[@]}" \
+            "${{ secrets.VM_USER }}@${{ vars.VM_HOST }}" \
+            "cd /opt/sandbox && REGISTRY_USER='${{ github.actor }}' bash ./deploy-docker-compose-ci.sh"
